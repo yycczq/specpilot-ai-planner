@@ -1,0 +1,72 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-specpilot}
+      MYSQL_USER: ${MYSQL_USER:-specpilot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-specpilot}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-specpilot-root}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-specpilot-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-only-not-for-production}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DEMO_ALLOW_ANONYMOUS: ${DEMO_ALLOW_ANONYMOUS:-false}
+      ALLOW_LOCAL_BYOK: ${ALLOW_LOCAL_BYOK:-false}
+      USE_SQLITE: "false"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-specpilot}
+      MYSQL_USER: ${MYSQL_USER:-specpilot}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-specpilot}
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      REDIS_URL: redis://redis:6379/0
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_PROXY: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  frontend_node_modules:
